@@ -1,6 +1,6 @@
 // this is one way to write a wrapped function of async handler with promise
 const asyncHandler = (requestHandler) => {
-  (req, res, next) => {
+  return (req, res, next) => {
     Promise.resolve(requestHandler(req, res, next)).catch((err) => next(err));
   };
 };

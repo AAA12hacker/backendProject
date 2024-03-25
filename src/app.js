@@ -21,4 +21,10 @@ app.use(express.static("public"));
 // need to store cookies secure in user browser
 app.use(cookieParser());
 
+// import routes
+import userRoutes from "./routes/user.routes.js";
+
+// declare routes
+app.use("/api/v1/users", userRoutes);
+
 export { app };
