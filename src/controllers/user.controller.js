@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -236,4 +237,250 @@ const refreshTokenUser = asyncHandler(async (req, res) => {
     );
 });
 
-export { registerUser, loginUser, logoutUser, refreshTokenUser };
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const user = User.findById(req.user?._id);
+  const isPasswordVerified = await user.isPasswordCorrect(oldPassword);
+  if (!isPasswordVerified) {
+    throw new ApiError(400, "Invalid password");
+  }
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "password Changed Successfully"));
+});
+
+const getCurrentUserDetails = asyncHandler(async (req, res) => {
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, { user: req.user }, "User data fetched successfully")
+    );
+});
+
+const updateUserDetails = asyncHandler(async (req, res) => {
+  const { fullName, email } = req.body;
+  if (!fullName || !email) {
+    throw new ApiError(400, "Field are required to update user");
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        fullName,
+        email: email,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "user successfully Updated"));
+});
+const updateUserAvatar = asyncHandler(async (req, res) => {
+  const avatarLocalPath = req.file?.path;
+  if (!avatarLocalPath) {
+    throw new ApiError(400, "Avatar is required");
+  }
+  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  if (!avatar.url) {
+    throw new ApiError(400, "Error while uploading Avatar");
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        avatar: avatar.url,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "user successfully Updated"));
+});
+const updateCoverImage = asyncHandler(async (req, res) => {
+  const coverImageLocalPath = req.file?.path;
+  if (!coverImageLocalPath) {
+    throw new ApiError(400, "Avatar is required");
+  }
+  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  if (!coverImage.url) {
+    throw new ApiError(400, "Error while uploading Avatar");
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        coverImage: coverImage.url,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "user successfully Updated"));
+});
+
+// aggregation Pipeline implemented
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+  const { userName } = req.params;
+  if (!userName.trim()) {
+    throw new ApiError(400, "username is missing");
+  }
+  //   they are two Ways we can find the data with username
+  //   await User.find({ userName });
+  // Here we are introducing the concepts of aggregation and aggregation pipelines
+  const channel = User.aggregate([
+    {
+      // with match statement we searched the user
+      $match: {
+        userName: userName?.toLowerCase(), // we are writing lowercase=> db we stored in lower case form
+      },
+    },
+    {
+      // we are searching in another and storing it's value in a variable with "as" keyword
+      $lookup: {
+        // we are searching from subscription model,
+        // reason of writing=>subscriptions is it stores the collection with this name in db
+        from: "subscriptions",
+        // from our user collection
+        localField: "_id",
+        // from our subscriptions collection
+        foreignField: "channel",
+        as: "subscribers",
+      },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedTo",
+      },
+    },
+    {
+      $addFields: {
+        subscriberCount: {
+          // just now we have make this field as subscribers
+          // using "$" reason it is field
+          $size: "$subscribers",
+        },
+        channelSubscribedToCount: {
+          $size: "$subscribedTo",
+        },
+        isSubscribed: {
+          $cond: {
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        fullName: 1,
+        avatar: 1,
+        userName: 1,
+        email: 1,
+        channelSubscribedToCount: 1,
+        subscriberCount: 1,
+        isSubscribed: 1,
+        coverImage: 1,
+      },
+    },
+  ]);
+  console.log({ channel });
+  if (!channel?.length) {
+    throw new ApiError(404, "channel does not exist");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, channel[0], "user channel fetched successfully")
+    );
+});
+
+const getUserWatchHistory = asyncHandler(async (req, res) => {
+  const user = User.aggregate([
+    {
+      $match: {
+        // the reason is we are using mongoose.Types.ObjectId to get the Id in string or else it will
+        // return objectId("daafada")
+        _id: new mongoose.Types.ObjectId(req.user?.id),
+      },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "watchHistory",
+        // we are using nested pipeline because we have owner in the watchHisory
+        pipeline: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "owner",
+              foreignField: "_id",
+              // we are giving same name as of collection value
+              as: "owner",
+              // here we are integrating pipeline again because to get the data which is important
+              // not all data
+              // we can direct write another pipeline but we are going nested as it will change the format of data
+              pipeline: [
+                {
+                  $project: {
+                    fullName: 1,
+                    avatar: 1,
+                    userName: 1,
+                  },
+                },
+              ],
+            },
+          },
+          // we are writing another pipeline to return the array's first object only
+          {
+            $addFields: {
+              // overriding owner
+              owner: {
+                $first: "$owner",
+              },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      // here to avoid we can have directly send the watchhistory with aggregation
+      user[0]?.watchHistory,
+      "watch history fetched successfully"
+    )
+  );
+});
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  refreshTokenUser,
+  changeCurrentPassword,
+  getCurrentUserDetails,
+  updateUserDetails,
+  updateUserAvatar,
+  updateCoverImage,
+  getUserChannelProfile,
+  getUserWatchHistory,
+};
