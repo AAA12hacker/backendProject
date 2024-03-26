@@ -61,6 +61,7 @@ userSchema.pre("save", async function (next) {
   // this is our function which will go to next execution
   next();
 });
+
 //we can make our customs methods with Schemas
 
 // this function is used for to check isPassword is correct during login
@@ -76,7 +77,7 @@ userSchema.methods.generateAccessToken = function () {
       email: this.email,
       fullName: this.fullName,
     },
-    process.env.ACCESS_TOKEN_GENERATE,
+    process.env.ACCESS_TOKEN_SECRET,
     {
       expiresIn: process.env.ACCESS_TOKEN_EXPIRY,
     }
@@ -87,7 +88,7 @@ userSchema.methods.refreshAccessToken = function () {
     {
       _id: this._id,
     },
-    process.env.REFRESH_TOKEN_GENERATE,
+    process.env.REFRESH_TOKEN_SECRET,
     {
       expiresIn: process.env.REFRESH_TOKEN_EXPIRY,
     }

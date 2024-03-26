@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 
 // to use this we are adding dotenv/config in our database.
 dotenv.config({
-  path: "./env",
+  path: "./.env",
 });
 
 connectDb()
